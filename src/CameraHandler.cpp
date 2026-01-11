@@ -6,7 +6,11 @@ CameraHandler::CameraHandler() {
 }
 
 bool CameraHandler::initCamera(int id) {
+#ifdef __linux__
+	cap.open(id, cv::CAP_V4L2);
+#else
 	cap.open(id);
+#endif
 	if (!cap.isOpened()) {
         return false;
     }
@@ -16,6 +20,7 @@ bool CameraHandler::initCamera(int id) {
 	* UDB Camers YUYV(Color Model) format me data deti hai jo uncompressed hota hai
 	* jo usb bandwidth zyada leta hai aur processing slow kar deta hai
 	* to isliye hum MJPG format set kar rahe hai jisse camera compressed frames dega
+    * (Windows ke liye DSHOW, RPi/Linux ke liye V4L2)
     */
     cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720); 

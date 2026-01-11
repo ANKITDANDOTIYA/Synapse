@@ -8,6 +8,6 @@ private:
 public:
     NetworkHandler();
     void init(std::string protocol);
-	void sendFrme(cv::Mat frame);
+	void sendFrame(cv::Mat &frame);
 
 };

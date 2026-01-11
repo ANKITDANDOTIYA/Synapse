@@ -1,4 +1,4 @@
-#include "NetworkHander.h"
+#include "NetworkHandler.h"
 #include <opencv2/imgcodecs.hpp>
 
 NetworkHandler::NetworkHandler()  : context(1), publisher(context, ZMQ_PUB){
@@ -29,10 +29,10 @@ void NetworkHandler::sendFrame(cv::Mat& frame) { // &  reference pass by memory 
 	std::vector<int> params;
 	params.push_back(cv::IMWRITE_JPEG_QUALITY);
 	params.push_back(80);
-	cv::imencode(".jpg", frame, buffer, params,);
+	cv::imencode(".jpg", frame, buffer, params);
 	zmq::message_t message(buffer.size());
 
-	mcpy(buffer.data(), message.data(), buffer.size());
+	memcpy(buffer.data(), message.data(), buffer.size());
 	publisher.send(message, zmq :: send_flags :: none);
 
 }
