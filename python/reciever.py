@@ -25,6 +25,6 @@ while True:
             cv.imshow("RECEIVER (Python)", frame)
             cv.waitKey(1)
             
-        if cv.waitKey(1) == 27: break
+        if cv.waitKey(1) == ord('q'): break
     except Exception as e:
            print("Error receiving frame:", e)
