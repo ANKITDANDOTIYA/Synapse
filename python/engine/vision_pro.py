@@ -86,3 +86,37 @@ class Vision_Pro :
         print(colorama.Fore.GREEN + f"[Vision] Registered new face: {name}")    
 
         return True
+    
+
+    def recognize(self,frame):
+        rgb_frame =  cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        faces = self.app.get(rgb_frame)
+
+        recognized = []
+        for face  in faces :
+            embedding = face.embedding
+            name = "unkonwn"
+            info = {}
+            max_score = 0.0
+
+            if len(self.known_embeddings) > 0:
+                known_matrix =  np.array(self.known_embeddings)
+
+                sims = np.dot(known_matrix, embedding) / (
+                    np.linalg.norm(known_matrix,axis = 1) * np.linalg.norm(embedding)
+                    )
+
+                best_idx =  np.argmax(sims)
+                max_score = sims[best_idx]
+
+                if max_score > 0.6 :
+                    name = self.known_faces[best_idx]
+                    info =  self.known_info[best_idx]
+             
+            bbox = face.bbox.astype(int)
+            recognized.appens({
+                 'name' : name,
+                 'info' : info,
+                 'bbox' : bbox})
+            return recognized
