@@ -26,6 +26,15 @@ python/synapse_env/
 *.pyo
 *.pyd
 
+# Database files (Ye lock hoti hain)
+*.db
+*.sqlite3
+# Build/Compile Kachra (Ye VS lock karta hai)
+cmake-build-*/
+
+# Python Cache
+__pycache__/
+
 # --- AI Models (VERY IMPORTANT - DO NOT COMMIT) ---
 *.pt
 *.pth
