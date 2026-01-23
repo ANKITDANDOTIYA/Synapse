@@ -37,3 +37,10 @@ void NetworkHandler::sendFrame(cv::Mat& frame) { // &  reference pass by memory 
 	publisher.send(message, zmq :: send_flags :: none);
 
 }
+void NetworkHandler::sendAudioChunk(const void* data, size_t size) {
+	// Raw bytes ka message banao
+	zmq::message_t message(data, size);
+
+	// ZMQ socket se bhej do (Don't wait/block if possible)
+	socket.send(message, zmq::send_flags::none);
+}
