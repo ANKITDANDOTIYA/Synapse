@@ -3,7 +3,6 @@ import speech_recognition as sr
 import numpy as np
 import time
 import colorama
-import os
 
 # Colors init
 colorama.init(autoreset=True)
@@ -39,7 +38,17 @@ class STT_Engine:
                 audio_np = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
                 
                 # Transcribe
-                segments, info = self.model.transcribe(audio_np, beam_size=5)
+                # Transcribe (Updated with Language Constraints)
+                segments, info = self.model.transcribe(
+                    audio_np,
+                    beam_size=5,
+                    # 1. Ye prompt model ko batata hai ki Hinglish expect kare
+                    initial_prompt="This is a conversation in Hindi and English. Ye baat cheet Hindi aur English mein ho rahi hai.",
+                    # 2. Temperature 0 karne se wo creative nahi banta (Hallucination kam hoti hai)
+                    temperature=0.0,
+                    # 3. Pichli baat se confuse na ho (Commands ke liye acha hai)
+                    condition_on_previous_text=False
+                )
                 text = " ".join([segment.text for segment in segments])
 
                 if text.strip():

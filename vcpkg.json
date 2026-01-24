@@ -5,6 +5,7 @@
     "opencv",
     "zeromq",
     "cppzmq",
-    "nlohmann-json"
+    "nlohmann-json",
+    "miniaudio"
   ]
 }
