@@ -3,11 +3,15 @@ import time
 
 import colorama
 import ollama
+from ollama import Tool
+
+from python.engine.music_engine import MusicEngine
 
 
 class LLM_Engine:
     def __init__(self):
         # Sarah System Prompt (Strict Language Enforcer)
+        self.music = MusicEngine()
         print(colorama.Fore.YELLOW + "[STT] Initializing Whisper Model...")
         system_instructions = """
                 You are Sarah, a witty conversational AI. 
@@ -26,7 +30,7 @@ class LLM_Engine:
         start_time = time.time()
         print(colorama.Fore.GREEN + f"[STT] Model loaded in {time.time() - start_time:.2f} seconds")
 
-
+    
 
     def chat(self, text):
         # Debugging: Dekho ki Whisper kya bhej raha hai
