@@ -45,7 +45,7 @@ class STT_Engine:
                     audio_np,
                     beam_size=5,
                     # 1. Ye prompt model ko batata hai ki Hinglish expect kare
-                    initial_prompt="Priyadarshan, Trinetra, Jarvis, Ankit, Prerak,Dandotia, Hindi, English, Code, Python",
+                    # initial_prompt="Priyadarshan, Trinetra, Jarvis, Ankit, Prerak,Dandotia, Hindi, English, Code, Python",
                     # 2. Temperature 0 karne se wo creative nahi banta (Hallucination kam hoti hai)
                     temperature=0.0,
                     # 3. Pichli baat se confuse na ho (Commands ke liye acha hai)
@@ -64,24 +64,24 @@ class STT_Engine:
                 clean_text = text.lower().replace(".", "").strip()
                 if clean_text in hallucinations:
                     print(f"🚫 Ignored Hallucination: '{text}'")
-                    return None
+                    return None,""
                 if len(clean_text.split()) > 3 and len(set(clean_text.split())) == 1:
                     print(f"🚫 Ignored Repetitive Loop: '{text}'")
-                    return None
+                    return None,""
 
                 if "hindi" in clean_text and len(clean_text) < 10:
-                    return None
+                    return None,""
 
                 if text.strip():
-                    return text.strip()
+                    return audio, text.strip()
                 else:
-                    return None
+                    return None,""
                     
             except sr.WaitTimeoutError:
-                return None
+                return None,""
             except Exception as e:
                 print(colorama.Fore.RED + f"\nError: {e}")
-                return None
+                return None,""
 
 # Ye helper function class ke bahar hi thik hai 
 # This method is just for checking purpose I already have this method in main.py

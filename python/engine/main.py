@@ -1,8 +1,18 @@
+import pyaudio
+import pygame
+
 from python.engine.music_engine import MusicEngine
+from python.engine.weather_system import Wheather_Engine
 from stt_engine import STT_Engine
 from tts_engine import TTS_Engine
 from llm_engine import LLM_Engine
+
+import os
+
 import threading
+import numpy as np
+
+from openwakeword import Model
 
 from vision_pro import Vision_Pro
 import colorama
@@ -20,126 +30,209 @@ class Synapse:
         self.ear = STT_Engine()
         self.brain = LLM_Engine()
         self.music = MusicEngine()
+        self.weather =  Wheather_Engine()
+        self.MIC_INDEX = 1
+        self.manual_music_mode = False
+        models_path = r"E:\MyProjects\CPP\Trinetra_Vision\src\hey_jarvis.onnx"
+        self.model = Model(wakeword_models=[models_path])
         self.mouth.speak("Hi there")
 
     def check_exit(self, text):
+        if any(word in text for word in ["music", "song", "gana", "playing"]):
+            return False
         exit_phrases = ["exit", "quit", "stop", "terminate", "bye", "adios", "chal thik hai", "milte hai"]
         if any(phrase in text.lower() for phrase in exit_phrases):
             return True
         return False
 
     def start(self):
+
+
+        # ... baki imports ...
+
         while True:
             try:
-                # 1. Listen
-                command = self.ear.listen()
+                command = None  # Har baar reset karo
+                audio = None
 
-                # Safety: Agar Sarah khud bol rahi hai to mat suno
-                if self.mouth._is_speaking:
-                    time.sleep(0.1)
-                    continue
+                # --- STEP 1: STATUS CHECK ---
+                hardware_status = self.music.check_status()
+
+                # Agar hardware bajne laga, to manual flag hata do (Auto-sync)
+                if hardware_status:
+                    self.manual_music_mode = False
+
+                # Decision: Kya Music Mode chalana hai?
+                is_music_mode = hardware_status or self.manual_music_mode
+
+                # --- STEP 2: LISTENING MODES ---
+
+                # MODE A: MUSIC PLAYING (Wake Word)
+                if is_music_mode:
+                    if not hasattr(self, 'stream_music_mode'):
+                        import pyaudio
+                        self.p_audio = pyaudio.PyAudio()
+                        self.stream_music_mode = self.p_audio.open(
+                            format=pyaudio.paInt16,
+                            channels=1,
+                            rate=16000,
+                            input=True,
+                            frames_per_buffer=1280,
+                            input_device_index= self.MIC_INDEX
+                        )
+
+                    try:
+                        # 1. Read Audio Chunk
+                        raw_audio = self.stream_music_mode.read(1280, exception_on_overflow=False)
+                        audio_np = np.frombuffer(raw_audio, dtype=np.int16)
+
+                        # 2. Predict
+                        prediction = self.model.predict(audio_np)
+
+                        # 3. Key Matching
+                        max_score = 0.0
+                        for key, score in prediction.items():
+                            if "jarvis" in key.lower() or "sarah" in key.lower():
+                                max_score = score
+                                break
+
+                        # 4. Action
+                        if max_score > 0.5:
+                            print(f"🚨 Wake Word Detected! (Score: {max_score:.2f})")
+
+                            try:
+                                pygame.mixer.music.set_volume(0.1)  # Direct 0.1 bhejo
+                            except:
+                                pass
+
+                            # CRITICAL: Mic Free Karo
+                            self.stream_music_mode.stop_stream()
+                            self.stream_music_mode.close()
+                            self.p_audio.terminate()
+                            del self.stream_music_mode
+                            del self.p_audio
+
+                            time.sleep(0.5)
+
+                            # Google Listen
+                            print("👂 Listening for command...")
+                            try:
+                                _, command = self.ear.listen()
+                            except Exception as e:
+                                command = None
+
+                            self.music.restore_volume()
+
+                            # Agar command nahi mili to wapas loop me
+                            if not command:
+                                continue
+
+                        else:
+                            continue  # Wake word nahi mila, loop continue
+
+                    except Exception as e:
+                        continue
+
+                # MODE B: NORMAL LISTENING (Jab Music Band Ho)
+                else:
+                    # Cleanup: Agar galti se stream khuli reh gayi
+                    if hasattr(self, 'stream_music_mode'):
+                        try:
+                            self.stream_music_mode.close()
+                            self.p_audio.terminate()
+                            del self.stream_music_mode
+                            del self.p_audio
+                        except:
+                            pass
+
+                    # Normal Listen
+                    try:
+                        audio, command = self.ear.listen()
+                    except:
+                        command = None
+
+                # --- STEP 3: PROCESSING PHASE ---
 
                 if command:
-                    # Har jagah lowercase use karenge matching ke liye
+                    print(f"🎤 Heard: {command}")
                     command_lower = command.lower()
 
-                    # EXIT CHECK
+                    if "stop" in command_lower and ("music" in command_lower or "song" in command_lower):
+                        print("🛑 Stopping Music...")
+                        self.music.stop()  # Ensure MusicEngine me 'stop()' function ho
+                        self.mouth.speak("Stopping the music.")
+
+                        # Important: Music Mode ko False kar do taaki loop wapas Normal Mode me chala jaye
+                        self.manual_music_mode = False
+                        continue
+
+                    # 1. EXIT CHECK
                     if self.check_exit(command_lower):
+                        self.vision.close_camera()
                         self.mouth.speak("Goodbye!")
-                        break
-                    music_triggers = ["play", "bajao", "sunao", "song", "music", "gana"]
-                    music_triggers = ["play", "bajao", "sunao", "song", "music", "gana"]
+                        print("Stopping Synapse...")
+                        os._exit(0)
 
-                    # Logic: Agar command me "play" hai (par ye koi question nahi hai)
+                    # 2. MUSIC TRIGGERS
+                    music_triggers = ["play", "bajao", "sunao", "song", "music", "gana"]
                     if any(trigger in command_lower for trigger in music_triggers):
-
-                        # 1. Brain se Song Name nikalo
-                        # Note: Make sure brain_engine.py me function ka naam 'play_music' hi ho
                         song_name = self.brain.play_music(command_lower)
 
-                        # ... (Music Logic ke andar) ...
-
-                        if song_name and song_name.lower() != "unknown" and song_name.lower() != "none":
+                        if song_name and song_name.lower() not in ["unknown", "none"]:
                             print(f"🎵 Extracting Song: {song_name}")
                             self.mouth.speak(f"Sure, playing {song_name}.")
 
-                            # 2. Threading Start
+                            # Flag ON karo taaki agle loop me Music Mode me jaye
+                            self.manual_music_mode = True
+
                             t = threading.Thread(target=self.music.play, args=(song_name,))
                             t.start()
 
-                            #  Second ka break lo taaki download ho jaye
-                            # aur Sarah khud ki awaaz na sune
                             print("[System] Waiting for music to start...")
-                            time.sleep(5)
-
+                            time.sleep(2)
                             continue
                         else:
                             self.mouth.speak("I couldn't understand the song name.")
-
                         continue
-                    # REGISTRATION TRIGGERS
-                    # (Sabse pehle check karo agar user naya banda add karna chahta hai)
-                    registration_triggers = [
-                        "remember this person", "remember him", "remember her",
-                        "memorize this face", "register new face", "add a new person",
-                        "save this person", "add to memory", "remember me",
-                        "learn this face"
-                    ]
+                    city = self.brain.get_weather_city(command_lower)
+                    # if city is not None:
+                    #
 
+                    # 3. REGISTRATION TRIGGERS
+                    registration_triggers = ["remember this person", "add a new person", "remember me"]
                     if any(trigger in command_lower for trigger in registration_triggers):
                         print("📝 Switching to Registration Mode...")
                         self.handle_registration_flow()
-                        continue  # Loop restart, taaki chat/vision trigger na ho
+                        continue
 
-                    #  VISION TRIGGERS
-                    vision_triggers = [
-                        "who is this", "who is that", "who is he", "who is she",
-                        "who are they", "identify", "identify him", "identify her",
-                        "recognize him", "recognize her", "recognize this person",
-                        "tell me who this is", "tell me who that is",
-                        "who am i", "do you know me", "do you remember me",
-                        "what is my name", "verify my identity", "authenticate me",
-                        "scan", "scan now", "scan the scene", "scan the room",
-                        "what do you see", "what is in front of you",
-                        "check camera", "open your eyes", "look at this",
-                        "who is in the camera", "who is in the frame",
-                        "describe the view", "visual check",
-                    ]
-
+                    # 4. VISION TRIGGERS
+                    vision_triggers = ["who is this", "what do you see", "scan"]
                     if any(trigger in command_lower for trigger in vision_triggers):
                         print("📷 Scanning Scene...")
                         detected_people = self.vision.scan_scene()
 
-                        if "Camera Error" in detected_people:
-                            self.mouth.speak("My camera is malfunctioning.")
+                        if not detected_people:
+                            self.mouth.speak("I don't see anyone.")
                         elif "Unknown" in detected_people:
-                            # Direct registration offer kar sakte ho
-                            self.mouth.speak("I see someone, but I don't know them. Do you want me to remember them?")
-                            # Yahan logic simple rakha hai filhal
+                            self.mouth.speak("I see someone, but I don't know them.")
                         else:
                             names_str = ", ".join(detected_people)
                             self.mouth.speak(f"I can see {names_str}.")
-
                         continue
 
-                    #  DB NAME LOOKUP
-                    # Agar user kisi specific bande ka pooch raha hai (e.g. "Who is Ankit?")
+                    # 5. DB NAME LOOKUP
                     detected_name_input = self.brain.get_name(command)
-
                     if detected_name_input:
-                        print(f"🔍 Checking DB for input: {detected_name_input}")
                         result = self.vision.get_info(detected_name_input)
-
                         if result:
                             correct_name, info_data = result
                             natural_sentence = self.brain.generate_info(str(info_data), correct_name)
                             self.mouth.speak(natural_sentence)
                         else:
-                            self.mouth.speak(f"I heard {detected_name_input}, but I don't have their details.")
-
+                            self.mouth.speak(f"I don't have details for {detected_name_input}.")
                         continue
 
-                        # := GENERAL CHAT (Fallback)
+                    # 6. GENERAL CHAT (Fallback)
                     print(f"💬 General Chat: {command}")
                     ai_response = self.brain.chat(command)
                     self.mouth.speak(ai_response)
@@ -147,6 +240,9 @@ class Synapse:
             except KeyboardInterrupt:
                 print("\nStopping Synapse...")
                 break
+            except Exception as e:
+                print(f"Critical Error in Main Loop: {e}")
+                time.sleep(1)
 
     def handle_registration_flow(self, auto_trigger=False):
 

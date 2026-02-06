@@ -26,6 +26,8 @@ class LLM_Engine:
         start_time = time.time()
         print(colorama.Fore.GREEN + f"[STT] Model loaded in {time.time() - start_time:.2f} seconds")
 
+
+
     def chat(self, text):
         # Debugging: Dekho ki Whisper kya bhej raha hai
         print(f"🧠 Brain Received: {text}")
@@ -154,7 +156,29 @@ class LLM_Engine:
         except Exception as e:
             print(f"Music Extraction Error: {e}")
             return None
+    def get_weather_city(self, command):
+        system_prompt = """
+        You are city and weather entity extractor. 
+        If user asks for weather in a city, extract the city name. Or you feel anything regarding that user clearly asking about weather
+        or climate about of a city.
+        You just need to extract the city name with it's state name.
+        and return it to them.
+        If you don't know the city name, return "None".
+        """
 
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": command}
+        ]
+        try:
+            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
+            content = response['message']['content'].strip()
+
+            cleaned = content.replace('"', '').replace("'", "")
+            return cleaned
+        except Exception as e:
+            print(f"Music Extraction Error: {e}")
+            return None
 
 
     def generate_info(self, json_text, name):

@@ -9,8 +9,9 @@ class MusicEngine:
     def __init__(self):
         if not pygame.mixer.get_init():
             pygame.mixer.init(frequency=44100)
+        self.current = 1.0
 
-        self.is_playing = False
+
         self._volume = 1.0  #  ISKO 0.5 SE 1.0 KAR DO
         self.current_file = None
 
@@ -116,3 +117,19 @@ class MusicEngine:
         """Set volume (0.0 to 1.0)"""
         self._volume = max(0.0, min(1.0, volume))
         pygame.mixer.music.set_volume(self._volume)
+
+    def check_status(self):
+        try:
+            return pygame.mixer.music.get_busy()
+        except:
+            return False
+
+    def duck_volume(self):
+        """Music dheema karo (Wake Word sunte waqt)"""
+        print("⬇️ Ducking Volume...")
+        self.set_volume(10)  # 10% Volume (Ab ye 0.1 banega, jo sahi hai)
+
+    def restore_volume(self):
+        """Music wapas tez karo"""
+        print("⬆️ Restoring Volume...")
+        self.set_volume(100)  # 100% Volume (1.0)

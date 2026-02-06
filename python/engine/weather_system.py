@@ -1,9 +1,9 @@
 import requests
 
-class WeatherAdvanced:
+class Wheather_Engine:
     def __init__(self):
         # -> OpenWeather se tempreature pta lagayenge
-        self.api_key = "YOUR_API_KEY"
+        self.api_key = "7c880ab8a64eddb3de89b7e500536d9c"
         self.base_url = "http://api.openweathermap.org/data/2.5/weather"
 
     def get_weather(self, city):

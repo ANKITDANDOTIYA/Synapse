@@ -14,41 +14,34 @@ class Vision_Pro:
     def __init__(self):  # init constructor hai
         print('Initializing Vision Pro Engine...')
         self.yolo = YOLO('yolov8n.pt')  # self == this
+        self.is_running = True
 
         self.app = FaceAnalysis(
-            name='buffalo_l',
+            name='buffalo_s', # l ki jarurat nahi hai s se bhi kaam ho jayega mera
             root='C:/Users/priya/.insightface',
             providers=['CUDAExecutionProvider']
         )
-
-        # buffallo_l model use kar raha hai agar
-        # cuda available hai to use karega nahi to CPU
+        # buffallo_l model use kar raha hai agar cuda available hai to use karega nahi to CPU
 
         self.app.prepare(ctx_id=0, det_size=(640, 640))
-        # app ka object ban gya ab engine start karna prepare se ctx_id mtlb jo provider 
-        # # diya hai usme se 0th index wala use karega camera se 1080p yaa 4K ko reframe 
-        # karega 640x640 me
-        # # and usme chehra dhundega, Face detection ke liye fast hai
+        # app ka object ban gya ab engine start karna prepare se ctx_id mtlb jo provider
+        # diya hai usme se 0th index wala use karega.
 
         self.conn = sqlite3.connect('vision_pro.db', check_same_thread=False)
         # conn naam ka obj banaya ab ye database se connect karega vision_pro.db file se
-        #  agar file nahi hai to nayi file bana dega
-        # check_same_thread=False ka matlab hai ki multiple threads se access kar sakte hai 
-        # sqllite ka rule hai jis thread ne banaya vahi access kar sakta hai good for multithreading
 
         self.cursor = self.conn.cursor()
         # conn bridge hai jaha se hum databse jayenge but cursor is the gaurd jo queries ko execute karega
-        # jese insert select etc
 
         self.setup_db()
         # database setup karne ke liye function call kiya
 
         self.known_names = []  # same as arrayList or vector naaam ke liye
-        self.known_embeddings = []  # dembeddings mtlb chehre ke features store karega
+        self.known_embeddings = []  # embeddings mtlb chehre ke features store karega
         self.known_info = []  # uska info store karega jaise role etc
         self.load_memory()  # function call kiya memory load karne ke liye
 
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         print('Vision Pro Engine Ready.')
 
     def setup_db(self):
@@ -95,15 +88,16 @@ class Vision_Pro:
         print(colorama.Fore.GREEN + f"[Vision] Loaded {len(self.known_names)} identities.")
 
     def register_face(self, frame, name, info_dict, tts_engine):
-
         # --- ⏳ HELPER: Bolne ka wait karo, fir user ko time do ---
         def speak_and_wait(text, wait_for_user_seconds=0):
-            tts_engine.speak(text)
-            time.sleep(0.5)  # Thread start hone ka chhota buffer
-
-            # Jab tak Sarah bol rahi hai, code yahi roka rahega
-            while tts_engine._is_speaking:
-                time.sleep(0.1)
+            if tts_engine:
+                tts_engine.speak(text)
+                time.sleep(0.5)  # Thread start hone ka chhota buffer
+                # Jab tak Sarah bol rahi hai, code yahi roka rahega
+                while hasattr(tts_engine, '_is_speaking') and tts_engine._is_speaking:
+                    time.sleep(0.1)
+            else:
+                print(f"[TTS MISSING]: {text}")
 
             # Ab Sarah chup hai, User ko time do move karne ka
             if wait_for_user_seconds > 0:
@@ -128,7 +122,7 @@ class Vision_Pro:
         embedding_straight = face_straight.embedding
 
         # 2. LEFT FACE
-        speak_and_wait("Now turn your face slightly to the left.", wait_for_user_seconds=3)  # ✅ 3 Sec ka gap
+        speak_and_wait("Now turn your face slightly to the left.", wait_for_user_seconds=3)
 
         ret, frame_left = self.cap.read()  # Ab photo lo
         if not ret: return False
@@ -144,7 +138,7 @@ class Vision_Pro:
             embedding_left = face_left_obj.embedding
 
         # 3. RIGHT FACE
-        speak_and_wait("Now turn slightly to the right.", wait_for_user_seconds=3)  # ✅ 3 Sec ka gap
+        speak_and_wait("Now turn slightly to the right.", wait_for_user_seconds=3)
 
         ret, frame_right = self.cap.read()
         if not ret: return False
@@ -181,14 +175,11 @@ class Vision_Pro:
         binary_enc_smile = pickle.dumps(embedding_smile)
 
         # 4 Rows Insert karo (Front, Left, Right, Smile)
-        self.cursor.execute("INSERT INTO humans (name, embedding, info) VALUES (?, ?, ?)",
-                            (name, binary_enc_straight, json_info))
-        self.cursor.execute("INSERT INTO humans (name, embedding, info) VALUES (?, ?, ?)",
-                            (name, binary_enc_left, json_info))
-        self.cursor.execute("INSERT INTO humans (name, embedding, info) VALUES (?, ?, ?)",
-                            (name, binary_enc_right, json_info))
-        self.cursor.execute("INSERT INTO humans (name, embedding, info) VALUES (?, ?, ?)",
-                            (name, binary_enc_smile, json_info))  # Smile entry
+        query = "INSERT INTO humans (name, embedding, info) VALUES (?, ?, ?)"
+        self.cursor.execute(query, (name, binary_enc_straight, json_info))
+        self.cursor.execute(query, (name, binary_enc_left, json_info))
+        self.cursor.execute(query, (name, binary_enc_right, json_info))
+        self.cursor.execute(query, (name, binary_enc_smile, json_info))
 
         self.conn.commit()
 
@@ -201,35 +192,34 @@ class Vision_Pro:
         print(colorama.Fore.GREEN + f"[Vision] Registered new face: {name} (4 Angles)")
         return True
 
-        # --- 🛠️ NEW HELPER FUNCTIONS ---
+    # --- 🛠️ HELPER FUNCTIONS (NOW CORRECTLY INDENTED) ---
 
-        def check_person_exists(self, name):
-            """Check if person exists and return their current info"""
-            try:
-                # Case-insensitive search
-                self.cursor.execute("SELECT info FROM humans WHERE name LIKE ?", (name,))
-                row = self.cursor.fetchone()
-                if row:
-                    return json.loads(row[0])  # Return Info Dict
-                return None
-            except Exception:
-                return None
+    def check_person_exists(self, name):
+        """Check if person exists and return their current info"""
+        try:
+            # Case-insensitive search
+            self.cursor.execute("SELECT info FROM humans WHERE name LIKE ?", (name,))
+            row = self.cursor.fetchone()
+            if row:
+                return json.loads(row[0])  # Return Info Dict
+            return None
+        except Exception:
+            return None
 
-        def update_person_info(self, name, new_info_dict):
-            """Updates only the info, keeps the face data"""
-            try:
-                json_info = json.dumps(new_info_dict)
-                # Update all entries for this name (Front, Left, Right etc.)
-                self.cursor.execute("UPDATE humans SET info = ? WHERE name LIKE ?", (json_info, name))
-                self.conn.commit()
+    def update_person_info(self, name, new_info_dict):
+        """Updates only the info, keeps the face data"""
+        try:
+            json_info = json.dumps(new_info_dict)
+            # Update all entries for this name (Front, Left, Right etc.)
+            self.cursor.execute("UPDATE humans SET info = ? WHERE name LIKE ?", (json_info, name))
+            self.conn.commit()
 
-                # Memory list bhi update karni padegi (Thoda complex hai, reload karna best hai)
-                self.load_known_faces()  # Reload DB to RAM
-                return True
-            except Exception as e:
-                print(f"Update Error: {e}")
-                return False
-
+            # Memory list update
+            self.load_memory()  # Reload DB to RAM (Corrected function name)
+            return True
+        except Exception as e:
+            print(f"Update Error: {e}")
+            return False
 
     def recognize(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -266,13 +256,28 @@ class Vision_Pro:
 
         return recognized
 
+    def close_camera(self):
+        # 1. Pehle loop ko roko (Agar thread chal raha hai)
+        self.is_running = False
+
+        # 2. Thoda saans lene do taaki last frame process ho jaye
+        time.sleep(0.1)
+
+        # 3. Ab camera resource release karo
+        if self.cap.isOpened():
+            self.cap.release()
+
+        # 4. Windows udao
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+        print("Camera Resource Released.")
+
     def scan_scene(self):
         ret, frame = self.cap.read()
         if not ret:
             return ["Camera Error"]
 
         results = self.recognize(frame)
-
 
         if not results:
             return []  # Khali list return karo
@@ -320,15 +325,17 @@ class Vision_Pro:
             return None
 
 
-
 if __name__ == "__main__":
     v = Vision_Pro()
 
-    cap = cv2.VideoCapture(0)
+    # Note: cap yahan define karne ki zarurat nahi hai agar class ke andar already self.cap hai.
+    # Lekin agar aapko loop yahan chalana hai to 'v.cap' use karein ya naya banayein.
+
     print("Press 'r' to register yourself, 'q' to quit")
 
     while True:
-        ret, frame = cap.read()
+        # Class wala camera use karte hain taaki conflict na ho
+        ret, frame = v.cap.read()
         if not ret: break
 
         detections = v.recognize(frame)
@@ -365,7 +372,7 @@ if __name__ == "__main__":
                 "last_seen": "Today"
             }
 
-            v.register_face(frame, my_name, info_data)
-
-    cap.release()
-    cv2.destroyAllWindows()
+            # NOTE: Yahan 'None' pass kiya hai kyunki main loop me 'tts_engine' nahi hai.
+            # Agar real usage me TTS chahiye, to tts_engine ka object pass karna padega.
+            v.register_face(frame, my_name, info_data, None)
+    v.close_camera()
