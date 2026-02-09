@@ -134,6 +134,8 @@ class Synapse:
                         continue
 
                 # MODE B: NORMAL LISTENING (Jab Music Band Ho)
+
+
                 else:
                     # Cleanup: Agar galti se stream khuli reh gayi
                     if hasattr(self, 'stream_music_mode'):
@@ -198,6 +200,13 @@ class Synapse:
                     # if city is not None:
                     #
 
+                    agentic_response = self.brain.run_agentic_llm(command)
+                    if agentic_response and "I encountered" not in agentic_response:
+                        print(f"🤖 Agentic Response: {agentic_response}")
+                        self.mouth.speak(agentic_response)
+                        continue
+
+                    # Keep the rest of your logic as fallback
                     # 3. REGISTRATION TRIGGERS
                     registration_triggers = ["remember this person", "add a new person", "remember me"]
                     if any(trigger in command_lower for trigger in registration_triggers):

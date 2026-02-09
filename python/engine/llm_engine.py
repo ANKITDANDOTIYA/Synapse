@@ -1,5 +1,6 @@
 import json
 import time
+import re
 
 import colorama
 import ollama
@@ -7,12 +8,29 @@ from ollama import Tool
 
 from python.engine.music_engine import MusicEngine
 
+from python.engine.dynamic_db_engine import DynamicDBEngine
+from python.engine.vision_pro import Vision_Pro
+from python.engine.music_engine import MusicEngine
+from python.engine.weather_system import Wheather_Engine
+
+
+
 
 class LLM_Engine:
     def __init__(self):
         # Sarah System Prompt (Strict Language Enforcer)
+<<<<<<< HEAD
         self.music = MusicEngine()
+=======
+
+>>>>>>> vision
         print(colorama.Fore.YELLOW + "[STT] Initializing Whisper Model...")
+        # sare objects bana do jo llm use karega as an agentic device
+        self.vision = Vision_Pro()
+        self.music = MusicEngine()
+        self.weather =  Wheather_Engine()
+        self.dynamicDb =  DynamicDBEngine()
+
         system_instructions = """
                 You are Sarah, a witty conversational AI. 
 
@@ -30,8 +48,84 @@ class LLM_Engine:
         start_time = time.time()
         print(colorama.Fore.GREEN + f"[STT] Model loaded in {time.time() - start_time:.2f} seconds")
 
+<<<<<<< HEAD
     
+=======
+ # Add this import at the top
 
+    def run_agentic_llm(self, text):
+        # 1. PRE-PROCESSING
+        # Fix common speech-to-text misinterpretations of the developer's name
+        text = text.lower().replace("pre-edarsion", "priyadarshan").replace("predation", "priyadarshan")
+>>>>>>> vision
+
+        tools_desc = """
+            Available Tools:
+            - Weather: 'Call : Weather <Location>'
+            - Music: 'Call : Music <Song Name>'
+            - Search: 'Call : Search <Query>' (Use this for 'Who is X', 'Developer', 'Creator')
+            - Final Answer: 'Final Answer : <Reply>'
+            """
+
+        system_context = """
+            You are Sarah. Your Creator is 'Priyadarshan'.
+            If asked about the developer/creator, ALWAYS output: 'Call : Search priyadarshan'
+            """
+
+        prompt = f"{system_context}\n{tools_desc}\nUser asked: \"{text}\"\nDECIDE TOOL. OUTPUT FORMAT ONLY."
+
+        print(f"🤖 Agent Thinking...")
+
+        try:
+            # Using a lower temperature for strict format adherence
+            raw_response = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt, options={'temperature': 0.1})
+            response = raw_response['response'].strip()
+            print(f"🤖 Agent Output: {response}")
+
+            # --- 🛡️ ROBUST REGEX PARSING (Advanced) ---
+
+            # Pattern: Matches "Call : ToolName Argument" case-insensitively
+            match = re.search(r"Call\s*:\s*(\w+)\s+(.*)", response, re.IGNORECASE)
+
+            if match:
+                tool_name = match.group(1).lower()
+                argument = match.group(2).strip()
+
+                # 1. WEATHER
+                if tool_name == "weather":
+                    data = self.weather.get_weather(argument)
+                    return f"Weather Report: {data}"
+
+                # 2. MUSIC
+                elif tool_name == "music":
+                    self.music.play(argument)
+                    return f"Starting music: {argument}"
+
+                # 3. SEARCH
+                elif tool_name == "search":
+                    # Handle "my developer" or "creator" explicitly
+                    if any(x in argument.lower() for x in ["developer", "creator", "maker"]):
+                        argument = "priyadarshan"
+
+                    print(f"🔍 Searching DB for: {argument}")
+                    data = self.dynamicDb.find_user(argument)
+
+                    if data:
+                        # Feed the raw data back to LLM to make it conversational
+                        return self.generate_info(str(data), argument)
+                    else:
+                        return f"I checked my memory for '{argument}', but found nothing."
+
+            # 4. FINAL ANSWER / FALLBACK
+            if "final answer" in response.lower():
+                return response.split(":", 1)[1].strip()
+
+            # If no tool matched, just chat
+            return self.chat(text)
+
+        except Exception as e:
+            print(f"❌ Agent Error: {e}")
+            return "I encountered a system error."
     def chat(self, text):
         # Debugging: Dekho ki Whisper kya bhej raha hai
         print(f"🧠 Brain Received: {text}")
