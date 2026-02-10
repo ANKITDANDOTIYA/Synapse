@@ -1,6 +1,7 @@
 import pyaudio
 import pygame
 
+from python.engine.assistant_state import AssistantState
 from python.engine.music_engine import MusicEngine
 from python.engine.weather_system import Wheather_Engine
 from stt_engine import STT_Engine
@@ -28,9 +29,12 @@ class Synapse:
         self.vision = Vision_Pro()
         self.mouth = TTS_Engine()
         self.ear = STT_Engine()
-        self.brain = LLM_Engine()
-        self.music = MusicEngine()
-        self.weather =  Wheather_Engine()
+        self.music = MusicEngine()  # Create ONCE
+        self.weather = Wheather_Engine()
+        
+        # Pass the music engine to brain
+        self.brain = LLM_Engine(music_engine=self.music)  # SHARE the same instance
+        
         self.MIC_INDEX = 1
         self.manual_music_mode = False
         models_path = r"E:\MyProjects\CPP\Trinetra_Vision\src\hey_jarvis.onnx"
@@ -49,7 +53,7 @@ class Synapse:
 
 
         # ... baki imports ...
-
+        state_manager = AssistantState(music_engine=self.music)
         while True:
             try:
                 command = None  # Har baar reset karo
@@ -159,15 +163,6 @@ class Synapse:
                     print(f"🎤 Heard: {command}")
                     command_lower = command.lower()
 
-                    if "stop" in command_lower and ("music" in command_lower or "song" in command_lower):
-                        print("🛑 Stopping Music...")
-                        self.music.stop()  # Ensure MusicEngine me 'stop()' function ho
-                        self.mouth.speak("Stopping the music.")
-
-                        # Important: Music Mode ko False kar do taaki loop wapas Normal Mode me chala jaye
-                        self.manual_music_mode = False
-                        continue
-
                     # 1. EXIT CHECK
                     if self.check_exit(command_lower):
                         self.vision.close_camera()
@@ -175,74 +170,26 @@ class Synapse:
                         print("Stopping Synapse...")
                         os._exit(0)
 
-                    # 2. MUSIC TRIGGERS
-                    music_triggers = ["play", "bajao", "sunao", "song", "music", "gana"]
-                    if any(trigger in command_lower for trigger in music_triggers):
-                        song_name = self.brain.play_music(command_lower)
-
-                        if song_name and song_name.lower() not in ["unknown", "none"]:
-                            print(f"🎵 Extracting Song: {song_name}")
-                            self.mouth.speak(f"Sure, playing {song_name}.")
-
-                            # Flag ON karo taaki agle loop me Music Mode me jaye
-                            self.manual_music_mode = True
-
-                            t = threading.Thread(target=self.music.play, args=(song_name,))
-                            t.start()
-
-                            print("[System] Waiting for music to start...")
-                            time.sleep(2)
-                            continue
-                        else:
-                            self.mouth.speak("I couldn't understand the song name.")
-                        continue
-                    city = self.brain.get_weather_city(command_lower)
-                    # if city is not None:
-                    #
-
+                    # 2. Use ONLY the agentic approach for everything
+                    print(f"🤖 Processing with Agent: {command}")
                     agentic_response = self.brain.run_agentic_llm(command)
+
                     if agentic_response and "I encountered" not in agentic_response:
-                        print(f"🤖 Agentic Response: {agentic_response}")
-                        self.mouth.speak(agentic_response)
-                        continue
+                        print(f"🤖 Agent Response: {agentic_response}")
 
-                    # Keep the rest of your logic as fallback
-                    # 3. REGISTRATION TRIGGERS
-                    registration_triggers = ["remember this person", "add a new person", "remember me"]
-                    if any(trigger in command_lower for trigger in registration_triggers):
-                        print("📝 Switching to Registration Mode...")
-                        self.handle_registration_flow()
-                        continue
-
-                    # 4. VISION TRIGGERS
-                    vision_triggers = ["who is this", "what do you see", "scan"]
-                    if any(trigger in command_lower for trigger in vision_triggers):
-                        print("📷 Scanning Scene...")
-                        detected_people = self.vision.scan_scene()
-
-                        if not detected_people:
-                            self.mouth.speak("I don't see anyone.")
-                        elif "Unknown" in detected_people:
-                            self.mouth.speak("I see someone, but I don't know them.")
+                        # Check if it's a music response - DON'T speak it
+                        if "Starting music:" in agentic_response:
+                            print("[System] Music starting - Skipping TTS to avoid conflict")
+                            self.manual_music_mode = True
+                            time.sleep(2)  # Wait for music to start
                         else:
-                            names_str = ", ".join(detected_people)
-                            self.mouth.speak(f"I can see {names_str}.")
+                            # Only speak non-music responses
+                            self.mouth.speak(agentic_response)
+
                         continue
 
-                    # 5. DB NAME LOOKUP
-                    detected_name_input = self.brain.get_name(command)
-                    if detected_name_input:
-                        result = self.vision.get_info(detected_name_input)
-                        if result:
-                            correct_name, info_data = result
-                            natural_sentence = self.brain.generate_info(str(info_data), correct_name)
-                            self.mouth.speak(natural_sentence)
-                        else:
-                            self.mouth.speak(f"I don't have details for {detected_name_input}.")
-                        continue
-
-                    # 6. GENERAL CHAT (Fallback)
-                    print(f"💬 General Chat: {command}")
+                    # Fallback to chat if agent fails
+                    print(f"💬 Falling back to Chat: {command}")
                     ai_response = self.brain.chat(command)
                     self.mouth.speak(ai_response)
 
