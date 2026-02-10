@@ -44,13 +44,21 @@ class Wheather_Engine:
                 else:
                     print(f"☀️  Precipitation: No rain reported.")
                 print("-" * 30)
+                
+                # **ADD THIS RETURN STATEMENT:**
+                return f"Temperature: {temp}°C, Condition: {desc.title()}, Humidity: {humidity}%, Wind: {wind_speed} m/s"
+                
             else:
                 print(f"❌ Error: {data['message']}")
+                return f"Weather data not available for {city}. Error: {data['message']}"
+                
         except Exception as e:
             print(f"❌ Something went wrong: {e}")
+            return f"Failed to get weather data for {city}. Error: {e}"
 
 # -> User se input leke weather check karenge
 if __name__ == "__main__":
-    bot = WeatherAdvanced()
+    bot = Wheather_Engine()  # Fixed class name here too
     city = input("Enter City Name: ")
-    bot.get_weather(city)
+    result = bot.get_weather(city)
+    print(f"Returned: {result}")

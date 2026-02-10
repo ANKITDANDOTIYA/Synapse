@@ -5,6 +5,11 @@ import re
 import colorama
 import ollama
 
+import threading
+
+
+
+
 from python.engine.dynamic_db_engine import DynamicDBEngine
 from python.engine.vision_pro import Vision_Pro
 from python.engine.music_engine import MusicEngine
@@ -14,13 +19,20 @@ from python.engine.weather_system import Wheather_Engine
 
 
 class LLM_Engine:
-    def __init__(self):
+    def __init__(self,music_engine=None):
         # Sarah System Prompt (Strict Language Enforcer)
 
+
         print(colorama.Fore.YELLOW + "[STT] Initializing Whisper Model...")
+
+        # Use provided music engine or create new one
+        if music_engine:
+            self.music = music_engine  # REUSE the existing one
+        else:
+            self.music = MusicEngine()
+
         # sare objects bana do jo llm use karega as an agentic device
         self.vision = Vision_Pro()
-        self.music = MusicEngine()
         self.weather =  Wheather_Engine()
         self.dynamicDb =  DynamicDBEngine()
 
@@ -41,12 +53,15 @@ class LLM_Engine:
         start_time = time.time()
         print(colorama.Fore.GREEN + f"[STT] Model loaded in {time.time() - start_time:.2f} seconds")
 
- # Add this import at the top
 
     def run_agentic_llm(self, text):
         # 1. PRE-PROCESSING
-        # Fix common speech-to-text misinterpretations of the developer's name
         text = text.lower().replace("pre-edarsion", "priyadarshan").replace("predation", "priyadarshan")
+
+        # Check for music stop command first
+        if "stop" in text and ("music" in text or "song" in text):
+            self.music.stop()
+            return "Stopping the music."
 
         tools_desc = """
             Available Tools:
@@ -59,6 +74,8 @@ class LLM_Engine:
         system_context = """
             You are Sarah. Your Creator is 'Priyadarshan'.
             If asked about the developer/creator, ALWAYS output: 'Call : Search priyadarshan'
+            For music requests like "play song", "bajao", "sunao", output: 'Call : Music <song name>'
+            For weather requests, output: 'Call : Weather <city name>' and remember the context of the query and create answer accordingly.
             """
 
         prompt = f"{system_context}\n{tools_desc}\nUser asked: \"{text}\"\nDECIDE TOOL. OUTPUT FORMAT ONLY."
@@ -66,12 +83,9 @@ class LLM_Engine:
         print(f"🤖 Agent Thinking...")
 
         try:
-            # Using a lower temperature for strict format adherence
             raw_response = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt, options={'temperature': 0.1})
             response = raw_response['response'].strip()
             print(f"🤖 Agent Output: {response}")
-
-            # --- 🛡️ ROBUST REGEX PARSING (Advanced) ---
 
             # Pattern: Matches "Call : ToolName Argument" case-insensitively
             match = re.search(r"Call\s*:\s*(\w+)\s+(.*)", response, re.IGNORECASE)
@@ -83,16 +97,30 @@ class LLM_Engine:
                 # 1. WEATHER
                 if tool_name == "weather":
                     data = self.weather.get_weather(argument)
-                    return f"Weather Report: {data}"
+                    make_response = self.build_response(text, data)
+                    return make_response
 
                 # 2. MUSIC
                 elif tool_name == "music":
-                    self.music.play(argument)
-                    return f"Starting music: {argument}"
+                    # Start music in a separate thread to avoid blocking
+                    ctx = self.build_response(text, None)
+
+                    def play_music_worker():
+                        # Ye background me chalega taaki Assistant "Okay playing" bol sake
+                        print(f"🎵 Thread fetching: {argument}")
+                        try:
+                            # Ye 2-3 second lega URL dhoondne me
+                            self.music.play(argument)
+                        except Exception as e:
+                            print(f"Music Error: {e}")
+                        music_thread = threading.Thread(target=play_music_worker)
+                        music_thread.daemon = True
+                        music_thread.start()
+                    
+                    return f"Starting music: {ctx}"
 
                 # 3. SEARCH
                 elif tool_name == "search":
-                    # Handle "my developer" or "creator" explicitly
                     if any(x in argument.lower() for x in ["developer", "creator", "maker"]):
                         argument = "priyadarshan"
 
@@ -100,7 +128,6 @@ class LLM_Engine:
                     data = self.dynamicDb.find_user(argument)
 
                     if data:
-                        # Feed the raw data back to LLM to make it conversational
                         return self.generate_info(str(data), argument)
                     else:
                         return f"I checked my memory for '{argument}', but found nothing."
@@ -214,58 +241,8 @@ class LLM_Engine:
             print(f"Couldn't get the name: {e}")
             return None
 
-    def play_music(self, command):
-        system_prompt = """
-        You are a Music Entity Extractor. 
-        Extract ONLY the song name or artist from the user command.
 
-        Rules:
-        1. Remove keywords like "play", "song", "music", "sunao", "bajao", "please".
-        2. Return ONLY the song name. No quotes, no explanations.
-        3. If the user is NOT asking to play a song (e.g., "I like to play cricket"), return "None".
 
-        Examples:
-        Input: "Play Gehra hua" -> Output: Gehra hua
-        Input: "Arijit Singh ke gaane bajao" -> Output: Arijit Singh
-        Input: "Play football" -> Output: None
-        """
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": command}
-        ]
-        try:
-            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
-            content = response['message']['content'].strip()
-
-            cleaned = content.replace('"', '').replace("'", "")
-            return cleaned
-        except Exception as e:
-            print(f"Music Extraction Error: {e}")
-            return None
-    def get_weather_city(self, command):
-        system_prompt = """
-        You are city and weather entity extractor. 
-        If user asks for weather in a city, extract the city name. Or you feel anything regarding that user clearly asking about weather
-        or climate about of a city.
-        You just need to extract the city name with it's state name.
-        and return it to them.
-        If you don't know the city name, return "None".
-        """
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": command}
-        ]
-        try:
-            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
-            content = response['message']['content'].strip()
-
-            cleaned = content.replace('"', '').replace("'", "")
-            return cleaned
-        except Exception as e:
-            print(f"Music Extraction Error: {e}")
-            return None
 
 
     def generate_info(self, json_text, name):
@@ -313,3 +290,41 @@ class LLM_Engine:
         except Exception as e:
             print(f"Error in generate_info: {e}")
             return f"I know {name}."
+
+    def build_response(self, query, data):
+            system_prompt = """
+            You are Sarah, a helpful AI assistant. Build a natural, conversational response to the user's query based on the provided data.
+    
+            RULES:
+            1. Use the provided data to answer the user's question accurately
+            2. Keep responses concise and natural
+            3. If data is empty or None, politely say you don't have that information
+            4. Don't mention "based on the provided data" - just answer naturally
+            5. Use a friendly, conversational tone
+            6. They might ask you to play something then don't say I can't play or use a streaming service. I have
+            already made functions, you just make a natural response that you are playing that music for them and it will work just fine
+        . 
+            """
+
+            user_message = f"Query: {query}\nData: {data}\nPlease provide a helpful response."
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ]
+
+            try:
+                response = ollama.chat(
+                    model='qwen2.5:3b-instruct',
+                    messages=messages,
+                    options={'temperature': 0.3}
+                )
+                return response['message']['content'].strip()
+
+            except Exception as e:
+                print(f"Response Generation Error: {e}")
+                # Fallback response
+                if data:
+                    return f"Here's what I found: {data}"
+                else:
+                    return "I don't have information about that right now."
