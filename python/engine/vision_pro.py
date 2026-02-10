@@ -44,6 +44,7 @@ class Vision_Pro:
         self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         print('Vision Pro Engine Ready.')
 
+
     def setup_db(self):
         self.cursor.execute(
             '''
