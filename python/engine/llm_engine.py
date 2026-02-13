@@ -83,7 +83,10 @@ class LLM_Engine:
             - Weather: 'Call : Weather <Location>'
             - Music: 'Call : Music <Song Name>'
             - Search: 'Call : Search <Query>' (Use this for 'Who is X', 'Developer', 'Creator')
+            - Add to DB: 'Call : Add <Name> <Info>'
+            - Update DB: 'Call : Update <Name> <Info>'
             - Final Answer: 'Final Answer : <Reply>'
+            
             """
 
         system_context = """
@@ -91,6 +94,8 @@ class LLM_Engine:
             If asked about the developer/creator, ALWAYS output: 'Call : Search priyadarshan'
             For music requests like "play song", "bajao", "sunao", output: 'Call : Music <song name>'
             For weather requests, output: 'Call : Weather <city name>' and remember the context of the query and create answer accordingly.
+            If they ask you to remember someone , output: 'Call : Add <name> <info>'
+            If you get an Idea that they are talking about someone or an idea that they might be updating someones info, output: 'Call : Update <name> <info>'
             """
 
         prompt = f"{system_context}\n{tools_desc}\nUser asked: \"{text}\"\nDECIDE TOOL. OUTPUT FORMAT ONLY."
@@ -114,7 +119,39 @@ class LLM_Engine:
                     data = self.weather.get_weather(argument)
                     make_response = self.build_response(text, data)
                     return make_response
+                    # ... (upar ka code same rahega) ...
 
+                elif tool_name == "add":
+                    # build_response hata diya, naya extractor lagaya
+                    json_info = self.extract_parameters(text)
+
+                    if json_info and "name" in json_info:
+                        extracted_name = json_info["name"]
+                        extracted_info = json_info["info"]
+
+                        print(f"📝 Extracted: {extracted_name} -> {extracted_info}")
+
+                        # Ab DB me daal
+                        self.dynamicDb.add_person(extracted_name, extracted_info)
+                        return f"Added {extracted_name} to memory."
+                    else:
+                        return "Could not understand the name or info."
+
+                elif tool_name == "update":
+                    # Yahan bhi same change
+                    json_info = self.extract_parameters(text)
+
+                    if json_info and "name" in json_info:
+                        extracted_name = json_info["name"]
+                        extracted_info = json_info["info"]
+
+                        print(f"🔄 Updating: {extracted_name} -> {extracted_info}")
+
+                        # Ab Update kar
+                        self.dynamicDb.update_user(extracted_name, extracted_info)
+                        return f"Updated information for {extracted_name}."
+                    else:
+                        return "Could not extract details for update."
                 # 2. MUSIC
                 elif tool_name == "music":
                     # Start music in a separate thread to avoid blocking
@@ -158,6 +195,30 @@ class LLM_Engine:
             print(f"❌ Agent Error: {e}")
             return "I encountered a system error."
 
+    import json
+
+    def extract_parameters(self, text):
+        # LLM ko bolo sirf JSON de, koi faltu baat nahi
+        prompt = f"""
+        Extract the 'name' and 'info' from the following user command.
+        Command: "{text}"
+
+        Return ONLY a JSON object. Format: {{"name": "Person Name", "info": "The information"}}
+        If info is missing, imply it from context or set as null.
+        """
+
+        try:
+            # Temperature 0 rakhna taaki hallucinate na kare
+            raw = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt, options={'temperature': 0.0})
+            response_text = raw['response'].strip()
+
+            # Kabhi kabhi LLM ```json ``` laga deta hai, use saaf karo
+            response_text = response_text.replace("```json", "").replace("```", "").strip()
+
+            return json.loads(response_text)
+        except Exception as e:
+            print(f"❌ Extraction Error: {e}")
+            return None
     def get_active_context(self):
         # 1. Vision Engine se pucho "Abhi kaun hai?" (Static list nahi!)
         detected_names = self.vision.scan_scene()
@@ -278,80 +339,6 @@ class LLM_Engine:
         except Exception as e:
             print(f"❌ Save Error: {e}")
 
-    def process_name_info(self, user_text):
-        system_prompt = """
-        You are a Data Extraction AI. You will receive a sentence about a person.
-        You MUST return the output in VALID JSON format with keys: 'name' and 'info'.
-        Rules:
-        1. Extract the name (Capitalize first letter).
-        2. 'info': Summarize details into a short string.
-        3. If no name is found, return "name": "Unknown".
-        4. Return ONLY raw JSON. No markdown, no explanations.
-        """
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text}
-        ]
-
-        try:
-            print(f"🧠 Brain Extracting info from: '{user_text}'...")
-
-            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
-            content = response['message']['content']
-
-            # Cleaning (Jo tune likha tha)
-            content = content.replace("```json", "").replace("```", "").strip()
-
-            return json.loads(content)
-
-        except Exception as e:
-            print(f"JSON Extraction Error: {e}")
-            # Fallback agar JSON fail ho jaye
-            return {"name": "Unknown", "info": user_text}
-
-    def get_name(self, text):
-        # DEBUG PRINT: Whisper output check karne ke liye
-        print(f"🧠 Brain Input: '{text}'")
-
-        system_prompt = """
-        ROLE: You are an Entity Extraction Bot. 
-        TASK: Extract the NAME of the person mentioned in the user's command.
-
-        RULES:
-        1. Return ONLY the name. Nothing else.
-        2. Do NOT chat. Do NOT mention Bollywood or movies.
-        3. If no name is found, return "None".
-        4. Fix spelling if it looks like a common Indian name.
-
-        User: "Who is Ankit?" Output: Ankit
-        User: "Tell me about Priyadarshan Garg" Output: Priyadarshan Garg
-        User: "What is the time?" Output: None
-        """
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text}
-        ]
-
-        try:
-            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
-            content = response['message']['content'].strip()
-
-            # --- CRITICAL FIX ---
-            # Agar Qwen ne bola "None", to asli Python None return karo
-            if "None" in content or content == "":
-                return None
-
-            # Agar Qwen ne galti se "Output: Ankit" likh diya, to saaf karo
-            content = content.replace("Output:", "").strip()
-
-            return content
-        except Exception as e:
-            print(f"Couldn't get the name: {e}")
-            return None
-
-
 
 
 
@@ -411,6 +398,7 @@ class LLM_Engine:
             3. If data is empty or None, politely say you don't have that information
             4. Don't mention "based on the provided data" - just answer naturally
             5. Use a friendly, conversational tone
+            7. If they gave any statements, like "Ankit is a very good DSA problem solver" then you response like this json {"name": "Ankit", "info": "very good DSA problem solver"}
             6. They might ask you to play something then don't say I can't play or use a streaming service. I have
             already made functions, you just make a natural response that you are playing that music for them and it will work just fine
         . 
