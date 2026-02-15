@@ -7,6 +7,7 @@ import threading
 
 from python.chat_manager import ChatManager
 from python.engine.dynamic_db_engine import DynamicDBEngine
+from python.engine.identity_manager import IdentityManager
 from python.engine.vision_pro import Vision_Pro
 from python.engine.music_engine import MusicEngine
 from python.engine.weather_system import Wheather_Engine
@@ -167,6 +168,7 @@ class LLM_Engine:
                             return "I'm not sure who you want me to remember. Can you say the name clearly?"
 
                         print(f"🚀 Triggering Registration for: {extracted_name}")
+                        self.dynamicDb.add_person(extracted_name, extracted_info)
                         return f"[REGISTER] {extracted_name} | {extracted_info}"
                     else:
                         return "I couldn't understand who to add."

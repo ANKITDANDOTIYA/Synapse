@@ -31,7 +31,7 @@ class Vision_Pro:
 
         # --- 🚀 NEW FEATURE: Auto-Import from Folder ---
         self.import_from_folder()
-        # ------------------------------------------------
+
 
         self.known_names = []
         self.known_embeddings = []
