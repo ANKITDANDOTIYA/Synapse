@@ -16,26 +16,28 @@ from python.identity_manager import IdentityManager
 
 
 class LLM_Engine:
-    def __init__(self,music_engine=None):
+    def __init__(self, music_engine=None, vision_engine=None):  # <--- ACCEPT VISION ENGINE
         # Sarah System Prompt (Strict Language Enforcer)
-
-
         print(colorama.Fore.YELLOW + "[STT] Initializing Whisper Model...")
 
-        # Use provided music engine or create new one
+        # Use provided music engine
         if music_engine:
-            self.music = music_engine  # REUSE the existing one
+            self.music = music_engine
         else:
             self.music = MusicEngine()
 
-        # sare objects bana do jo llm use karega as an agentic device
-        self.vision = Vision_Pro()
-        self.weather =  Wheather_Engine()
-        self.dynamicDb =  DynamicDBEngine()
-        self.chat_db =  ChatManager()
+        # REUSE the vision engine passed from Main (Fixes Camera Conflict)
+        if vision_engine:
+            self.vision = vision_engine
+        else:
+            self.vision = Vision_Pro()  # Fallback only if running standalone
+
+        self.weather = Wheather_Engine()
+        self.dynamicDb = DynamicDBEngine()
+        self.chat_db = ChatManager()
         self.current_session_id = self.chat_db.create_session(title="Coding Session")
-        self.id_manager =  IdentityManager(self.dynamicDb)
-        self.active_context  = ""
+        self.id_manager = IdentityManager(self.dynamicDb)
+        self.active_context = ""
         self.current_user = "Unknown"
 
         system_instructions = """
@@ -55,14 +57,13 @@ class LLM_Engine:
         start_time = time.time()
         print(colorama.Fore.GREEN + f"[STT] Model loaded in {time.time() - start_time:.2f} seconds")
 
-
     def run_agentic_llm(self, text):
         # 1. PRE-PROCESSING
         text = text.lower().replace("pre-edarsion", "priyadarshan").replace("predation", "priyadarshan")
 
         new_user = self.id_manager.detect_user_change(text)
         if new_user:
-            past_info =  self.id_manager.switch_user(new_user)
+            past_info = self.id_manager.switch_user(new_user)
 
             if past_info:
                 self.active_context = f"You are talking to {new_user}. Memory: {past_info}"
@@ -90,12 +91,22 @@ class LLM_Engine:
             """
 
         system_context = """
-            You are Sarah. Your Creator is 'Priyadarshan'.
-            If asked about the developer/creator, ALWAYS output: 'Call : Search priyadarshan'
-            For music requests like "play song", "bajao", "sunao", output: 'Call : Music <song name>'
-            For weather requests, output: 'Call : Weather <city name>' and remember the context of the query and create answer accordingly.
-            If they ask you to remember someone , output: 'Call : Add <name> <info>'
-            If you get an Idea that they are talking about someone or an idea that they might be updating someones info, output: 'Call : Update <name> <info>'
+            You are Sarah. Your Creator is 'Priyadarshan'.          
+            TOOL USAGE GUIDELINES (STRICT):
+            1. SEARCH: Use 'Call : Search <query>' ONLY if the user asks "Who is X?" or "What do you know about X?".
+            2. ADD (MEMORY): Use 'Call : Add <name> <info>' ONLY when the user EXPLICITLY asks to "remember", "save", "register", or "add" a person.
+               - NEVER use 'Add' for vague sentences like "I don't know", "maybe", or incomplete thoughts.
+               - NEVER use 'Add' for yourself (Sarah) or the user (I/Me).
+            3. UPDATE: Use 'Call : Update <name> <info>' only for correcting existing info.
+            4. MUSIC: Use 'Call : Music <song>' for playback.
+            5. WEATHER: Use 'Call : Weather <city>' for forecasts.
+            
+            DEFAULT BEHAVIOR (IMPORTANT):
+            If the user input is vague, conversational filler (e.g., "I mean...", "Umm.."), or a general question (e.g., "Who is PM?"), DO NOT USE TOOLS.
+            Instead, simply output: 'Final Answer : <Conversational Reply>'.
+            CRITICAL FALLBACK (General Knowledge):
+            If the user asks a general question (e.g., "Who is PM?", "Capital of France?", "Tell me a joke") or simply wants to chat, DO NOT CALL ANY TOOL. 
+            Instead, output: 'Final Answer : <Your direct answer here>'.
             """
 
         prompt = f"{system_context}\n{tools_desc}\nUser asked: \"{text}\"\nDECIDE TOOL. OUTPUT FORMAT ONLY."
@@ -122,20 +133,27 @@ class LLM_Engine:
                     # ... (upar ka code same rahega) ...
 
                 elif tool_name == "add":
-                    # build_response hata diya, naya extractor lagaya
+                    # Pehle parameters nikalo
                     json_info = self.extract_parameters(text)
 
                     if json_info and "name" in json_info:
-                        extracted_name = json_info["name"]
-                        extracted_info = json_info["info"]
+                        extracted_name = json_info["name"].strip()
+                        extracted_info = json_info.get("info", "")
 
-                        print(f"📝 Extracted: {extracted_name} -> {extracted_info}")
+                        # --- 🛡️ SANITY CHECK (Garbage Filter) ---
+                        # Agar naam inme se kuch hai, to ye Hallucination hai. Roko isko!
+                        forbidden_names = ["sarah", "i", "me", "myself", "person", "someone", "unknown", "nobody",
+                                           "user"]
 
-                        # Ab DB me daal
-                        self.dynamicDb.add_person(extracted_name, extracted_info)
-                        return f"Added {extracted_name} to memory."
+                        if extracted_name.lower() in forbidden_names or len(extracted_name) < 3:
+                            print(f"🚫 Blocked Garbage Add Request: {extracted_name}")
+                            return "I'm not sure who you want me to remember. Can you say the name clearly?"
+
+                        # Agar sab sahi hai, tabhi Registration trigger karo
+                        print(f"🚀 Triggering Registration for: {extracted_name}")
+                        return f"[REGISTER] {extracted_name} | {extracted_info}"
                     else:
-                        return "Could not understand the name or info."
+                        return "I couldn't understand who to add."
 
                 elif tool_name == "update":
                     # Yahan bhi same change
@@ -168,7 +186,7 @@ class LLM_Engine:
                         music_thread = threading.Thread(target=play_music_worker)
                         music_thread.daemon = True
                         music_thread.start()
-                    
+
                     return f"Starting music: {ctx}"
 
                 # 3. SEARCH
@@ -182,7 +200,9 @@ class LLM_Engine:
                     if data:
                         return self.generate_info(str(data), argument)
                     else:
-                        return f"I checked my memory for '{argument}', but found nothing."
+                        # AGAR DB ME NAHI MILA TO FINAL ANSWER BANA DO
+                        print(f"⚠️ DB Miss. Switching to General Knowledge.")
+                        return f"Final Answer : I don't have {argument} in my personal memory, but generally speaking, {self.chat(text)}"
 
             # 4. FINAL ANSWER / FALLBACK
             if "final answer" in response.lower():
@@ -219,6 +239,7 @@ class LLM_Engine:
         except Exception as e:
             print(f"❌ Extraction Error: {e}")
             return None
+
     def get_active_context(self):
         # 1. Vision Engine se pucho "Abhi kaun hai?" (Static list nahi!)
         detected_names = self.vision.scan_scene()
@@ -238,6 +259,7 @@ class LLM_Engine:
 
         # Agar camera error ya koi nahi dikha, to purana user hi rehne do
         return self.current_user.lower()
+
     # def chat(self, text):
     #     # Debugging: Dekho ki Whisper kya bhej raha hai
     #     print(f"🧠 Brain Received: {text}")
@@ -339,9 +361,6 @@ class LLM_Engine:
         except Exception as e:
             print(f"❌ Save Error: {e}")
 
-
-
-
     def generate_info(self, json_text, name):
         # 1. System Prompt (Strict Rules)
         system_prompt = f"""
@@ -389,7 +408,7 @@ class LLM_Engine:
             return f"I know {name}."
 
     def build_response(self, query, data):
-            system_prompt = """
+        system_prompt = """
             You are Sarah, a helpful AI assistant. Build a natural, conversational response to the user's query based on the provided data.
     
             RULES:
@@ -400,30 +419,28 @@ class LLM_Engine:
             5. Use a friendly, conversational tone
             7. If they gave any statements, like "Ankit is a very good DSA problem solver" then you response like this json {"name": "Ankit", "info": "very good DSA problem solver"}
             6. They might ask you to play something then don't say I can't play or use a streaming service. I have
-            already made functions, you just make a natural response that you are playing that music for them and it will work just fine
-        . 
+            already made functions, you just make a natural response that you are playing that music for them and it will work just fine.
             """
 
-            user_message = f"Query: {query}\nData: {data}\nPlease provide a helpful response."
+        user_message = f"Query: {query}\nData: {data}\nPlease provide a helpful response."
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ]
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
 
-            try:
-                response = ollama.chat(
-                    model='qwen2.5:3b-instruct',
-                    messages=messages,
-                    options={'temperature': 0.3}
-                )
-                return response['message']['content'].strip()
+        try:
+            response = ollama.chat(
+                model='qwen2.5:3b-instruct',
+                messages=messages,
+                options={'temperature': 0.3}
+            )
+            return response['message']['content'].strip()
 
-            except Exception as e:
-                print(f"Response Generation Error: {e}")
-                # Fallback response
-                if data:
-                    return f"Here's what I found: {data}"
-                else:
-                    return "I don't have information about that right now."
-
+        except Exception as e:
+            print(f"Response Generation Error: {e}")
+            # Fallback response
+            if data:
+                return f"Here's what I found: {data}"
+            else:
+                return "I don't have information about that right now."

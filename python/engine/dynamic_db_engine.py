@@ -136,7 +136,7 @@ class DynamicDBEngine:
                 distance = results['distances'][0][0]
 
                 # ChromaDB L2 Distance: Lower is better (0 is exact, >1.5 is irrelevant)
-                if distance < 1.5:
+                if distance < 0.6:
                     # CRITICAL FIX: Kabhi kabhi query me document wapas nahi aata
                     # Agar document None hai, to ID use karke wapas fetch karo
                     found_doc = results['documents'][0][0]

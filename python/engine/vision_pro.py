@@ -105,6 +105,15 @@ class Vision_Pro:
                 print(f"Waiting {wait_for_user_seconds}s for user action...")
                 time.sleep(wait_for_user_seconds)
 
+        # --- 📂 FOLDER SETUP (Images Save karne ke liye) ---
+        import os
+        folder_path = "registered_faces"
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        clean_name = name.replace(" ", "_").lower()
+        timestamp = int(time.time())
+
         # ---------------------------------------------------------
 
         # 1. FRONT FACE (Jo frame pass hua hai use hi use kar lo)
@@ -118,9 +127,12 @@ class Vision_Pro:
 
         speak_and_wait("Hold on, capturing front view.", 0)
 
-        # Capture Front
+        # Capture Front Embedding
         face_straight = sorted(faces, key=lambda x: x.bbox[2] * x.bbox[3])[-1]
         embedding_straight = face_straight.embedding
+
+        # 📸 Save Front Image
+        cv2.imwrite(f"{folder_path}/{clean_name}_front_{timestamp}.jpg", frame)
 
         # 2. LEFT FACE
         speak_and_wait("Now turn your face slightly to the left.", wait_for_user_seconds=3)
@@ -137,6 +149,8 @@ class Vision_Pro:
         else:
             face_left_obj = sorted(faces_left, key=lambda x: x.bbox[2] * x.bbox[3])[-1]
             embedding_left = face_left_obj.embedding
+            # 📸 Save Left Image (Sirf tab jab face detect ho)
+            cv2.imwrite(f"{folder_path}/{clean_name}_left_{timestamp}.jpg", frame_left)
 
         # 3. RIGHT FACE
         speak_and_wait("Now turn slightly to the right.", wait_for_user_seconds=3)
@@ -153,6 +167,8 @@ class Vision_Pro:
         else:
             face_right_obj = sorted(faces_right, key=lambda x: x.bbox[2] * x.bbox[3])[-1]
             embedding_right = face_right_obj.embedding
+            # 📸 Save Right Image
+            cv2.imwrite(f"{folder_path}/{clean_name}_right_{timestamp}.jpg", frame_right)
 
         # 4. SMILE (Optional but Good)
         speak_and_wait("Okay, now look at the camera and give me a big smile.", wait_for_user_seconds=2)
@@ -166,7 +182,7 @@ class Vision_Pro:
                 face_smile_obj = sorted(faces_smile, key=lambda x: x.bbox[2] * x.bbox[3])[-1]
                 embedding_smile = face_smile_obj.embedding
 
-        # --- DATABASE INSERTION ---
+        # --- DATABASE INSERTION (Vectors) ---
         json_info = json.dumps(info_dict)
 
         # Binary convert
@@ -184,13 +200,13 @@ class Vision_Pro:
 
         self.conn.commit()
 
-        # Update Memory
+        # Update Memory (RAM Reload)
         self.known_embeddings.extend([embedding_straight, embedding_left, embedding_right, embedding_smile])
         self.known_names.extend([name, name, name, name])
         self.known_info.extend([info_dict, info_dict, info_dict, info_dict])
 
         speak_and_wait(f"Done! I have successfully registered {name}.", 0)
-        print(colorama.Fore.GREEN + f"[Vision] Registered new face: {name} (4 Angles)")
+        print(colorama.Fore.GREEN + f"[Vision] Registered new face: {name} (4 Angles + Images Saved)")
         return True
 
     # --- 🛠️ HELPER FUNCTIONS (NOW CORRECTLY INDENTED) ---
