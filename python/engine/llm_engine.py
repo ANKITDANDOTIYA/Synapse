@@ -1,10 +1,8 @@
 import json
 import time
 import re
-
 import colorama
 import ollama
-
 import threading
 
 from python.chat_manager import ChatManager
@@ -16,7 +14,7 @@ from python.identity_manager import IdentityManager
 
 
 class LLM_Engine:
-    def __init__(self, music_engine=None, vision_engine=None):  # <--- ACCEPT VISION ENGINE
+    def __init__(self, music_engine=None, vision_engine=None):
         # Sarah System Prompt (Strict Language Enforcer)
         print(colorama.Fore.YELLOW + "[STT] Initializing Whisper Model...")
 
@@ -26,11 +24,11 @@ class LLM_Engine:
         else:
             self.music = MusicEngine()
 
-        # REUSE the vision engine passed from Main (Fixes Camera Conflict)
+        # REUSE the vision engine passed from Main
         if vision_engine:
             self.vision = vision_engine
         else:
-            self.vision = Vision_Pro()  # Fallback only if running standalone
+            self.vision = Vision_Pro()
 
         self.weather = Wheather_Engine()
         self.dynamicDb = DynamicDBEngine()
@@ -61,10 +59,27 @@ class LLM_Engine:
         # 1. PRE-PROCESSING
         text = text.lower().replace("pre-edarsion", "priyadarshan").replace("predation", "priyadarshan")
 
+        # --- INJECT VISION CONTEXT ---
+        visual_user = self.get_active_context()
+        vision_info_str = ""
+
+        if visual_user and visual_user not in ["unknown", "camera error"]:
+            if self.id_manager.current_user.lower() != visual_user:
+                print(f"👀 Vision Override: Switching ID Manager to {visual_user}")
+                self.id_manager.switch_user(visual_user)
+
+            user_mem = self.dynamicDb.find_user(visual_user)
+            vision_info_str = f"VISUAL REALITY: I can currently see '{visual_user}'. Memory: {user_mem}"
+
+        elif visual_user == "unknown":
+            vision_info_str = "VISUAL REALITY: I see a person in front of me, but I do not recognize them."
+        else:
+            vision_info_str = "VISUAL REALITY: No one is clearly visible to the camera."
+
+        # User Change Detection
         new_user = self.id_manager.detect_user_change(text)
         if new_user:
             past_info = self.id_manager.switch_user(new_user)
-
             if past_info:
                 self.active_context = f"You are talking to {new_user}. Memory: {past_info}"
                 return f"Hello {new_user}! Long time no see. I remember {past_info}"
@@ -74,7 +89,7 @@ class LLM_Engine:
 
         self.id_manager.add_to_buffer(text)
 
-        # Check for music stop command first
+        # Check for music stop
         if "stop" in text and ("music" in text or "song" in text):
             self.music.stop()
             return "Stopping the music."
@@ -87,360 +102,220 @@ class LLM_Engine:
             - Add to DB: 'Call : Add <Name> <Info>'
             - Update DB: 'Call : Update <Name> <Info>'
             - Final Answer: 'Final Answer : <Reply>'
-            
             """
 
-        system_context = """
-            You are Sarah. Your Creator is 'Priyadarshan'.          
+        system_context = f"""
+            You are Sarah. Your Creator is 'Priyadarshan'.  
+            {vision_info_str}
+
             TOOL USAGE GUIDELINES (STRICT):
             1. SEARCH: Use 'Call : Search <query>' ONLY if the user asks "Who is X?" or "What do you know about X?".
             2. ADD (MEMORY): Use 'Call : Add <name> <info>' ONLY when the user EXPLICITLY asks to "remember", "save", "register", or "add" a person.
-               - NEVER use 'Add' for vague sentences like "I don't know", "maybe", or incomplete thoughts.
-               - NEVER use 'Add' for yourself (Sarah) or the user (I/Me).
             3. UPDATE: Use 'Call : Update <name> <info>' only for correcting existing info.
             4. MUSIC: Use 'Call : Music <song>' for playback.
             5. WEATHER: Use 'Call : Weather <city>' for forecasts.
-            
-            DEFAULT BEHAVIOR (IMPORTANT):
-            If the user input is vague, conversational filler (e.g., "I mean...", "Umm.."), or a general question (e.g., "Who is PM?"), DO NOT USE TOOLS.
-            Instead, simply output: 'Final Answer : <Conversational Reply>'.
+
             CRITICAL FALLBACK (General Knowledge):
-            If the user asks a general question (e.g., "Who is PM?", "Capital of France?", "Tell me a joke") or simply wants to chat, DO NOT CALL ANY TOOL. 
+            If the user asks a general question or simply wants to chat, DO NOT CALL ANY TOOL. 
             Instead, output: 'Final Answer : <Your direct answer here>'.
             """
 
         prompt = f"{system_context}\n{tools_desc}\nUser asked: \"{text}\"\nDECIDE TOOL. OUTPUT FORMAT ONLY."
 
-        print(f"🤖 Agent Thinking...")
+        print(f"🤖 Agent Thinking (Vision Aware)...")
 
         try:
             raw_response = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt, options={'temperature': 0.1})
             response = raw_response['response'].strip()
             print(f"🤖 Agent Output: {response}")
 
-            # Pattern: Matches "Call : ToolName Argument" case-insensitively
             match = re.search(r"Call\s*:\s*(\w+)\s+(.*)", response, re.IGNORECASE)
 
             if match:
                 tool_name = match.group(1).lower()
                 argument = match.group(2).strip()
 
-                # 1. WEATHER
                 if tool_name == "weather":
+                    print(f"🔍 Fetching weather data for: {argument}...")
                     data = self.weather.get_weather(argument)
+                    # THIS FUNCTION WAS MISSING, NOW RESTORED BELOW
                     make_response = self.build_response(text, data)
                     return make_response
-                    # ... (upar ka code same rahega) ...
 
                 elif tool_name == "add":
-                    # Pehle parameters nikalo
                     json_info = self.extract_parameters(text)
-
                     if json_info and "name" in json_info:
                         extracted_name = json_info["name"].strip()
                         extracted_info = json_info.get("info", "")
 
-                        # --- 🛡️ SANITY CHECK (Garbage Filter) ---
-                        # Agar naam inme se kuch hai, to ye Hallucination hai. Roko isko!
                         forbidden_names = ["sarah", "i", "me", "myself", "person", "someone", "unknown", "nobody",
                                            "user"]
-
                         if extracted_name.lower() in forbidden_names or len(extracted_name) < 3:
                             print(f"🚫 Blocked Garbage Add Request: {extracted_name}")
                             return "I'm not sure who you want me to remember. Can you say the name clearly?"
 
-                        # Agar sab sahi hai, tabhi Registration trigger karo
                         print(f"🚀 Triggering Registration for: {extracted_name}")
                         return f"[REGISTER] {extracted_name} | {extracted_info}"
                     else:
                         return "I couldn't understand who to add."
 
                 elif tool_name == "update":
-                    # Yahan bhi same change
                     json_info = self.extract_parameters(text)
-
                     if json_info and "name" in json_info:
                         extracted_name = json_info["name"]
                         extracted_info = json_info["info"]
-
                         print(f"🔄 Updating: {extracted_name} -> {extracted_info}")
-
-                        # Ab Update kar
                         self.dynamicDb.update_user(extracted_name, extracted_info)
                         return f"Updated information for {extracted_name}."
                     else:
                         return "Could not extract details for update."
-                # 2. MUSIC
+
                 elif tool_name == "music":
-                    # Start music in a separate thread to avoid blocking
                     ctx = self.build_response(text, None)
 
                     def play_music_worker():
-                        # Ye background me chalega taaki Assistant "Okay playing" bol sake
                         print(f"🎵 Thread fetching: {argument}")
                         try:
-                            # Ye 2-3 second lega URL dhoondne me
                             self.music.play(argument)
                         except Exception as e:
                             print(f"Music Error: {e}")
-                        music_thread = threading.Thread(target=play_music_worker)
-                        music_thread.daemon = True
-                        music_thread.start()
 
+                    music_thread = threading.Thread(target=play_music_worker)
+                    music_thread.daemon = True
+                    music_thread.start()
                     return f"Starting music: {ctx}"
 
-                # 3. SEARCH
                 elif tool_name == "search":
                     if any(x in argument.lower() for x in ["developer", "creator", "maker"]):
                         argument = "priyadarshan"
-
                     print(f"🔍 Searching DB for: {argument}")
                     data = self.dynamicDb.find_user(argument)
-
                     if data:
                         return self.generate_info(str(data), argument)
                     else:
-                        # AGAR DB ME NAHI MILA TO FINAL ANSWER BANA DO
                         print(f"⚠️ DB Miss. Switching to General Knowledge.")
-                        return f"Final Answer : I don't have {argument} in my personal memory, but generally speaking, {self.chat(text)}"
+                        return self.chat(text)
 
-            # 4. FINAL ANSWER / FALLBACK
             if "final answer" in response.lower():
-                return response.split(":", 1)[1].strip()
+                try:
+                    return response.split(":", 1)[1].strip()
+                except:
+                    return response
 
             # If no tool matched, just chat
             return self.chat(text)
 
         except Exception as e:
             print(f"❌ Agent Error: {e}")
-            return "I encountered a system error."
+            # Fallback to chat to prevent silence
+            return self.chat(text)
 
-    import json
+    # --- MISSING FUNCTIONS RESTORED BELOW ---
+
+    def get_active_context(self):
+        """
+        Checks who is currently in front of the camera.
+        Removes trailing numbers (e.g. 'Priyadarshan7' -> 'Priyadarshan')
+        """
+        detected_names = self.vision.scan_scene()
+
+        # Debugging ke liye print (Optional)
+        # print(f"👀 Vision Saw: {detected_names}")
+
+        if detected_names:
+            # 1. Unknown aur Error hatao
+            known_faces = [name for name in detected_names if name != "Unknown" and name != "Camera Error"]
+
+            if known_faces:
+                raw_name = known_faces[0]  # Jaise: "Priyadarshan7"
+
+                # --- 🔥 MAGIC LOGIC HERE 🔥 ---
+                # String ke end se 0-9 tak saare digits uda do
+                clean_name = raw_name.rstrip("0123456789")
+
+                # Agar galti se pura naam hi number tha (kam chance hai), to wapas raw rakh lo
+                if len(clean_name) > 0:
+                    self.current_user = clean_name
+                else:
+                    self.current_user = raw_name
+
+            elif "Unknown" in detected_names:
+                self.current_user = "Unknown"
+
+        # Agar koi nahi dikha to purana user hi rahega
+        return self.current_user.lower()
 
     def extract_parameters(self, text):
-        # LLM ko bolo sirf JSON de, koi faltu baat nahi
         prompt = f"""
         Extract the 'name' and 'info' from the following user command.
         Command: "{text}"
-
         Return ONLY a JSON object. Format: {{"name": "Person Name", "info": "The information"}}
-        If info is missing, imply it from context or set as null.
         """
-
         try:
-            # Temperature 0 rakhna taaki hallucinate na kare
             raw = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt, options={'temperature': 0.0})
-            response_text = raw['response'].strip()
-
-            # Kabhi kabhi LLM ```json ``` laga deta hai, use saaf karo
-            response_text = response_text.replace("```json", "").replace("```", "").strip()
-
+            response_text = raw['response'].strip().replace("```json", "").replace("```", "").strip()
             return json.loads(response_text)
         except Exception as e:
             print(f"❌ Extraction Error: {e}")
             return None
 
-    def get_active_context(self):
-        # 1. Vision Engine se pucho "Abhi kaun hai?" (Static list nahi!)
-        detected_names = self.vision.scan_scene()
-
-        print(f"👀 Vision Saw: {detected_names}")  # Debugging ke liye
-
-        if detected_names:
-            # Agar list me naam hai, to "Unknown" ko filter karke Known banda dhundo
-            known_faces = [name for name in detected_names if name != "Unknown" and name != "Camera Error"]
-
-            if known_faces:
-                # Pehla known banda utha lo (e.g. ['Unknown', 'Priyadarshan'] -> 'Priyadarshan')
-                self.current_user = known_faces[0]
-            elif "Unknown" in detected_names:
-                # Agar sirf Unknown dikh raha hai
-                self.current_user = "Unknown"
-
-        # Agar camera error ya koi nahi dikha, to purana user hi rehne do
-        return self.current_user.lower()
-
-    # def chat(self, text):
-    #     # Debugging: Dekho ki Whisper kya bhej raha hai
-    #     print(f"🧠 Brain Received: {text}")
-    #     db_history = self.chat_db.get_history(self.current_session_id, limit=10)
-    #     # Safety Check: Agar input khali ya garbage hai to LLM ko mat bhejo
-    #     if not text or len(text.strip()) < 2:
-    #         return "I didn't catch that."
-    #
-    #     messages_payload = [{"role": "system", "content": self.system_prompt}] + db_history
-    #
-    #     try:
-    #         # Temperature 0.3 kar diya taaki wo creative hone ke chakkar me bhasha na badle
-    #         response = ollama.chat(
-    #             model='qwen2.5:3b-instruct',
-    #             messages=messages_payload,
-    #             options={'temperature': 0.3}
-    #         )
-    #
-    #         reply = response['message']['content']
-    #         self.chat_db.add_message(self.current_session_id, reply)
-    #         self.history.append({"role": "assistant", "content": reply})
-    #         return reply
-    #
-    #     except Exception as e:
-    #         print(f"Chat Error: {e}")
-    #         return "My systems are recovering."
-
     def chat(self, user_input):
-        # 1. Sabse pehle Camera Check (Vision Priority)
-        active_user_name = self.get_active_context()
+        # 1. Update history
+        self.history.append({"role": "user", "content": user_input})
 
-        # 2. Context inject karo (Dynamic DB se data uthao)
-        context_prompt = ""
-
-        if active_user_name != "Unknown":
-            # DB se is bande ki purani baatein nikalo
-            # Note: find_user tumhare DynamicDBEngine me hona chahiye
-            memory = self.dynamicDb.find_user(active_user_name)
-
-            if memory:
-                context_prompt = f"SYSTEM: You are talking to {active_user_name}. User Memory: {memory}\n"
-            else:
-                context_prompt = f"SYSTEM: You are talking to {active_user_name} (Identified via Face Auth).\n"
-        else:
-            context_prompt = "SYSTEM: User is unidentified (Guest).\n"
-
-        # 3. LLM ko bhejo
-        full_input = f"{context_prompt}User Said: {user_input}"
-        print(f"🤖 Context injected for: {active_user_name}")
-
-        # 4. Generate Response
-        self.history.append({"role": "user", "content": full_input})
-
+        # 2. Get Response
         try:
             response = ollama.chat(model='qwen2.5:3b-instruct', messages=self.history)
             reply = response['message']['content']
         except Exception as e:
+            print(f"Chat Gen Error: {e}")
             reply = "I'm having trouble thinking right now."
 
-        # 5. Background me Save karo (Taaki user wait na kare)
-        # Threading use kar rahe hain taaki reply turant aaye aur save peeche ho jaye
-        # IMPORTANT: 'active_user_name' pass kar rahe hain taaki sahi bande ke naam pe save ho
-        save_thread = threading.Thread(target=self.save_to_memory, args=(user_input, active_user_name))
-        save_thread.start()
-
+        # 3. Save to history
         self.history.append({"role": "assistant", "content": reply})
-
-        # Chat DB (Session history) update
         self.chat_db.add_message(self.current_session_id, "user", user_input)
         self.chat_db.add_message(self.current_session_id, "assistant", reply)
 
+        # 4. Background Fact Extraction
+        save_thread = threading.Thread(target=self.save_to_memory, args=(user_input, self.current_user))
+        save_thread.start()
+
         return reply
-
-    def save_to_memory(self, text, user_name):
-        """
-        Chat se facts nikal kar Sahi User ID pe save karega.
-        """
-        if user_name == "Unknown" or user_name == "priyadarshan":
-            # Developer ke liye har baat save mat karo, ya logic badal sakte ho
-            # Lekin testing ke liye hatana mat
-            pass
-
-        print(f"📝 Extracting Facts for: {user_name}...")
-
-        prompt = f"""
-        Extract facts about '{user_name}' from this sentence: "{text}"
-        Return a short sentence. If no useful info, return 'None'.
-        """
-
-        try:
-            response = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt)
-            fact = response['response'].strip()
-
-            if "None" not in fact and len(fact) > 5:
-                # DB Update via DynamicDBEngine
-                self.dynamicDb.add_person(user_name, fact)
-                print(colorama.Fore.GREEN + f"💾 Memory Updated for {user_name}: {fact}")
-
-        except Exception as e:
-            print(f"❌ Save Error: {e}")
-
-    def generate_info(self, json_text, name):
-        # 1. System Prompt (Strict Rules)
-        system_prompt = f"""
-                ROLE: You are Jarvis, an AI Assistant. 
-                TASK: You are describing a person named '{name}' to the user based on the provided database info.
-
-                CRITICAL RULES (Pronoun Correction):
-                1. You are talking ABOUT {name}. Use "He", "She", or "They".
-                2. NEVER refer to {name} as "I", "Me", or "My". 
-                4. If there is "you" in sentence use "me" , like creator of you convert it to "creator of me"   
-                3. If the data says "I am the admin", you MUST convert it to "{name} is the admin" or "He is the admin".
-                4. Do not output JSON. Output a natural sentence.
-
-                Example Input: {{ "name": "Rahul", "info": "I am a doctor" }}
-                Example Output: Rahul is a doctor. (NOT "I am a doctor")
-                """
-
-        # 2. User Prompt (Wrapper trick)
-        user_message = f"Tell me about {name} using this data: {json_text}"
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-
-        try:
-            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
-            content = response['message']['content'].strip()
-
-            # THE NUCLEAR OPTION (Python Fallback)
-            if content.startswith('{') or "{" in content:
-                print("⚠️ LLM failed (Gave JSON). Using Python fallback.")
-                try:
-                    data = json.loads(json_text.replace("'", '"'))
-                    info_val = data.get('info', 'known person')
-                    content = f"Yes, I know {name}. {info_val}."
-                except:
-                    content = f"Yes, I know {name}, but I cannot read the details right now."
-
-            content = content.replace('"', '').replace("'", "")
-            return content
-
-        except Exception as e:
-            print(f"Error in generate_info: {e}")
-            return f"I know {name}."
 
     def build_response(self, query, data):
         system_prompt = """
-            You are Sarah, a helpful AI assistant. Build a natural, conversational response to the user's query based on the provided data.
-    
-            RULES:
-            1. Use the provided data to answer the user's question accurately
-            2. Keep responses concise and natural
-            3. If data is empty or None, politely say you don't have that information
-            4. Don't mention "based on the provided data" - just answer naturally
-            5. Use a friendly, conversational tone
-            7. If they gave any statements, like "Ankit is a very good DSA problem solver" then you response like this json {"name": "Ankit", "info": "very good DSA problem solver"}
-            6. They might ask you to play something then don't say I can't play or use a streaming service. I have
-            already made functions, you just make a natural response that you are playing that music for them and it will work just fine.
+            You are Sarah. Convert the provided data into a natural, conversational response for the user.
+            Keep it concise.
             """
-
-        user_message = f"Query: {query}\nData: {data}\nPlease provide a helpful response."
+        user_message = f"User Query: {query}\nData Found: {data}\nResponse:"
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
-
         try:
-            response = ollama.chat(
-                model='qwen2.5:3b-instruct',
-                messages=messages,
-                options={'temperature': 0.3}
-            )
+            response = ollama.chat(model='qwen2.5:3b-instruct', messages=messages)
             return response['message']['content'].strip()
+        except:
+            return f"Here is the data: {data}"
 
-        except Exception as e:
-            print(f"Response Generation Error: {e}")
-            # Fallback response
-            if data:
-                return f"Here's what I found: {data}"
-            else:
-                return "I don't have information about that right now."
+    def generate_info(self, json_text, name):
+        system_prompt = f"Describe {name} based on this data. Use 'He/She/They', not 'I'. Data: {json_text}"
+        try:
+            response = ollama.generate(model='qwen2.5:3b-instruct', prompt=system_prompt)
+            return response['response'].strip()
+        except:
+            return f"I found info on {name}: {json_text}"
+
+    def save_to_memory(self, text, user_name):
+        if user_name in ["Unknown", "priyadarshan"]: return
+
+        prompt = f"Extract facts about '{user_name}' from: \"{text}\". Return fact or 'None'."
+        try:
+            response = ollama.generate(model='qwen2.5:3b-instruct', prompt=prompt)
+            fact = response['response'].strip()
+            if "None" not in fact and len(fact) > 5:
+                self.dynamicDb.add_person(user_name, fact)
+                print(colorama.Fore.GREEN + f"💾 Memory Updated for {user_name}: {fact}")
+        except:
+            pass

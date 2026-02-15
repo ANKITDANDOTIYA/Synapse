@@ -46,7 +46,7 @@ class Vision_Pro:
         Scans 'known_faces' folder.
         If you put 'ankit.jpg' there, it automatically registers 'Ankit' into the DB.
         """
-        folder_path = "known_faces"
+        folder_path = "../engine/known_faces"
 
         # Create folder if it doesn't exist
         if not os.path.exists(folder_path):
