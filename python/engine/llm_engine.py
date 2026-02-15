@@ -63,13 +63,13 @@ class LLM_Engine:
         visual_user = self.get_active_context()
         vision_info_str = ""
 
-        if visual_user and visual_user not in ["unknown", "camera error"]:
+        if visual_user and visual_user not in ["unknown", "camera error", "none"]:
             if self.id_manager.current_user.lower() != visual_user:
                 print(f"👀 Vision Override: Switching ID Manager to {visual_user}")
                 self.id_manager.switch_user(visual_user)
 
             user_mem = self.dynamicDb.find_user(visual_user)
-            vision_info_str = f"VISUAL REALITY: I can currently see '{visual_user}'. Memory: {user_mem}"
+            vision_info_str = f"VISUAL REALITY: I can currently see '{visual_user}' in front of me. Memory: {user_mem}"
 
         elif visual_user == "unknown":
             vision_info_str = "VISUAL REALITY: I see a person in front of me, but I do not recognize them."
@@ -99,6 +99,7 @@ class LLM_Engine:
             - Weather: 'Call : Weather <Location>'
             - Music: 'Call : Music <Song Name>'
             - Search: 'Call : Search <Query>' (Use this for 'Who is X', 'Developer', 'Creator')
+            - Vision: 'Call : Vision <Query>' (Use for 'What do you see?', 'Who is this?')
             - Add to DB: 'Call : Add <Name> <Info>'
             - Update DB: 'Call : Update <Name> <Info>'
             - Final Answer: 'Final Answer : <Reply>'
@@ -109,11 +110,13 @@ class LLM_Engine:
             {vision_info_str}
 
             TOOL USAGE GUIDELINES (STRICT):
-            1. SEARCH: Use 'Call : Search <query>' ONLY if the user asks "Who is X?" or "What do you know about X?".
-            2. ADD (MEMORY): Use 'Call : Add <name> <info>' ONLY when the user EXPLICITLY asks to "remember", "save", "register", or "add" a person.
-            3. UPDATE: Use 'Call : Update <name> <info>' only for correcting existing info.
-            4. MUSIC: Use 'Call : Music <song>' for playback.
-            5. WEATHER: Use 'Call : Weather <city>' for forecasts.
+            1. VISUAL AWARENESS: Use the 'VISUAL REALITY' data above. If it says you see someone (e.g., '{visual_user}'), ACKNOWLEDGE THEM. Do not say "I don't see anyone".
+            2. VISION TOOL: Use 'Call : Vision check' if user asks "What do you see?" or "Who am I?".
+            3. SEARCH: Use 'Call : Search <query>' ONLY if the user asks "Who is X?" or "What do you know about X?".
+            4. ADD (MEMORY): Use 'Call : Add <name> <info>' ONLY when the user EXPLICITLY asks to "remember", "save", "register", or "add" a person.
+            5. UPDATE: Use 'Call : Update <name> <info>' only for correcting existing info.
+            6. MUSIC: Use 'Call : Music <song>' for playback.
+            7. WEATHER: Use 'Call : Weather <city>' for forecasts.
 
             CRITICAL FALLBACK (General Knowledge):
             If the user asks a general question or simply wants to chat, DO NOT CALL ANY TOOL. 
@@ -135,10 +138,19 @@ class LLM_Engine:
                 tool_name = match.group(1).lower()
                 argument = match.group(2).strip()
 
-                if tool_name == "weather":
+                # --- 1. VISION TOOL (Added Logic) ---
+                if tool_name == "vision":
+                    # Use the visual_user variable we already calculated
+                    if visual_user and visual_user not in ["unknown", "camera error", "none"]:
+                        return f"I can see {visual_user} standing right in front of me."
+                    elif visual_user == "unknown":
+                        return "I can see someone, but I don't recognize them."
+                    else:
+                        return "I don't see anyone right now."
+
+                elif tool_name == "weather":
                     print(f"🔍 Fetching weather data for: {argument}...")
                     data = self.weather.get_weather(argument)
-                    # THIS FUNCTION WAS MISSING, NOW RESTORED BELOW
                     make_response = self.build_response(text, data)
                     return make_response
 
