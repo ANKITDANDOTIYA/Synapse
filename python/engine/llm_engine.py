@@ -10,7 +10,7 @@ from python.engine.dynamic_db_engine import DynamicDBEngine
 from python.engine.vision_pro import Vision_Pro
 from python.engine.music_engine import MusicEngine
 from python.engine.weather_system import Wheather_Engine
-from python.identity_manager import IdentityManager
+
 
 
 class LLM_Engine:
@@ -59,7 +59,7 @@ class LLM_Engine:
         # 1. PRE-PROCESSING
         text = text.lower().replace("pre-edarsion", "priyadarshan").replace("predation", "priyadarshan")
 
-        # --- INJECT VISION CONTEXT ---
+        #  INJECT VISION CONTEXT 
         visual_user = self.get_active_context()
         vision_info_str = ""
 
@@ -138,7 +138,7 @@ class LLM_Engine:
                 tool_name = match.group(1).lower()
                 argument = match.group(2).strip()
 
-                # --- 1. VISION TOOL (Added Logic) ---
+                #  1. VISION TOOL (Added Logic) 
                 if tool_name == "vision":
                     # Use the visual_user variable we already calculated
                     if visual_user and visual_user not in ["unknown", "camera error", "none"]:
@@ -222,7 +222,7 @@ class LLM_Engine:
             # Fallback to chat to prevent silence
             return self.chat(text)
 
-    # --- MISSING FUNCTIONS RESTORED BELOW ---
+    #  MISSING FUNCTIONS RESTORED BELOW 
 
     def get_active_context(self):
         """
@@ -241,7 +241,7 @@ class LLM_Engine:
             if known_faces:
                 raw_name = known_faces[0]  # Jaise: "Priyadarshan7"
 
-                # --- 🔥 MAGIC LOGIC HERE 🔥 ---
+                #  🔥 MAGIC LOGIC HERE 🔥 
                 # String ke end se 0-9 tak saare digits uda do
                 clean_name = raw_name.rstrip("0123456789")
 
